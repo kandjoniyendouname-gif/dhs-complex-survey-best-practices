@@ -1,0 +1,187 @@
+* STUDY: NFHS-5 Immunisation Analysis
+* AUTHOR: Kandjoni Yendouname
+* AFFILIATION: SRM Institute of Science and Technology, School of Public Health, India;
+*              University of Lomé, ENAM Lomé, Togo
+* DESCRIPTION: SPSS syntax for main and sensitivity analyses of immunisation coverage
+* DATA SOURCE: NFHS-5 (India)
+* DATE: 23 March 2026
+
+
+
+* USER INPUT: Specify file paths before running.
+
+* Load DHS/NFHS children's recode dataset (KR file).
+GET FILE='[Insert path to dataset]\IAKR7EFL.SAV'.
+
+* Define path for complex samples plan file.
+FILE HANDLE planfile /NAME='[Insert path to save plan file]\NFHS_complex_plan.csaplan'.
+
+
+* VARIABLE CONSTRUCTION
+
+
+*1. Maternal education.
+RECODE V106 (0=0) (1=1) (2=2) (3=3) INTO educ_cat.
+VARIABLE LABELS educ_cat "Maternal education".
+VALUE LABELS educ_cat
+0 "No education"
+1 "Primary"
+2 "Secondary"
+3 "Higher".
+
+*2. Wealth index.
+RECODE V190 (1,2=1) (3=2) (4,5=3) INTO wealth_cat.
+VARIABLE LABELS wealth_cat "Household wealth index".
+VALUE LABELS wealth_cat
+1 "Poor"
+2 "Middle"
+3 "Rich".
+
+*3. Place of residence.
+RECODE V025 (1=1) (2=2) INTO residence.
+VARIABLE LABELS residence "Place of residence".
+VALUE LABELS residence
+1 "Urban"
+2 "Rural".
+
+*4. Religion.
+RECODE V130 (1=1) (ELSE=2) INTO religion_cat.
+VARIABLE LABELS religion_cat "Religion".
+VALUE LABELS religion_cat
+1 "Hindu"
+2 "Others".
+
+*5. Birth order.
+RECODE BORD (1=1) (2=2) (3 THRU HIGHEST=3) INTO birth_order_cat.
+VARIABLE LABELS birth_order_cat "Birth order".
+VALUE LABELS birth_order_cat
+1 "1"
+2 "2"
+3 "≥3".
+
+*6. Distance to health facility.
+RECODE V467D (0,2=0) (1=1) INTO distance_problem.
+VARIABLE LABELS distance_problem "Distance to health facility".
+VALUE LABELS distance_problem
+0 "No problem"
+1 "Big problem".
+
+*7. Sex of child.
+RECODE B4 (1=1) (2=2) INTO sex_child.
+VARIABLE LABELS sex_child "Sex of child".
+VALUE LABELS sex_child
+1 "Male"
+2 "Female".
+
+*8. Mother's age grouped (3 categories).
+RECODE V012 (18 THRU 24=1) (25 THRU 34=2) (35 THRU HIGHEST=3) INTO age_group.
+VARIABLE LABELS age_group "Mother's age group".
+VALUE LABELS age_group
+1 "18–24"
+2 "25–34"
+3 "≥35".
+EXECUTE.
+
+
+* VACCINATION VARIABLES (CARD + RECALL)
+
+
+RECODE H2 H3 H5 H7 H4 H6 H8 (1,2,3=1) (0,8=0)
+INTO BCG_DHS DPT1_DHS DPT2_DHS DPT3_DHS POLIO1_DHS POLIO2_DHS POLIO3_DHS.
+
+RECODE H9 (1,2,3,4=1) (0,8=0) INTO MEASLES_DHS.
+
+COMPUTE fully_immunized =
+(BCG_DHS=1 AND DPT1_DHS=1 AND DPT2_DHS=1 AND DPT3_DHS=1 AND
+ POLIO1_DHS=1 AND POLIO2_DHS=1 AND POLIO3_DHS=1 AND MEASLES_DHS=1).
+
+VALUE LABELS fully_immunized
+0 "Not fully immunized"
+1 "Fully immunized".
+EXECUTE.
+
+
+* SAMPLE SELECTION
+
+
+COMPUTE filter_TN_and_Nagaland = 0.
+IF ((v024 = 13 OR v024 = 33) AND 
+    B19 >= 12 AND B19 <= 23 AND 
+    NOT SYSMIS(fully_immunized))
+    filter_TN_and_Nagaland = 1.
+EXECUTE.
+
+
+* WEIGHTING
+
+
+COMPUTE weighting_state = V005 / 1000000.
+EXECUTE.
+
+
+* COMPLEX SURVEY DESIGN
+
+
+CSPLAN ANALYSIS
+  /PLAN FILE=planfile
+  /PLANVARS ANALYSISWEIGHT=weighting_state
+  /PRINT PLAN
+  /DESIGN STRATA=V022 CLUSTER=V021
+  /ESTIMATOR TYPE=WR.
+
+
+* DESCRIPTIVE ANALYSIS
+
+
+USE ALL.
+FILTER BY filter_TN_and_Nagaland.
+EXECUTE.
+
+FREQUENCIES VARIABLES=fully_immunized.
+
+
+* BIVARIATE ANALYSIS
+
+
+CSTABULATE
+  /PLAN FILE=planfile
+  /TABLES VARIABLES=educ_cat wealth_cat residence religion_cat birth_order_cat distance_problem sex_child age_group BY fully_immunized
+  /CELLS ROWPCT
+  /TEST INDEPENDENCE.
+
+
+* MULTIVARIABLE ANALYSIS
+
+
+CSLOGISTIC fully_immunized
+  BY educ_cat wealth_cat residence religion_cat
+     birth_order_cat distance_problem sex_child age_group
+  /PLAN FILE=planfile
+  /MODEL educ_cat wealth_cat residence religion_cat
+         birth_order_cat distance_problem sex_child age_group
+  /STATISTICS EXP SE CINTERVAL.
+
+
+* SENSITIVITY ANALYSIS (CARD ONLY)
+
+
+RECODE H2 H3 H5 H7 H4 H6 H8 (1=1) (ELSE=0)
+INTO BCG_CARD DPT1_CARD DPT2_CARD DPT3_CARD POLIO1_CARD POLIO2_CARD POLIO3_CARD.
+
+RECODE H9 (1=1) (ELSE=0) INTO MEASLES_CARD.
+
+COMPUTE fully_immunized_card =
+(BCG_CARD=1 AND DPT1_CARD=1 AND DPT2_CARD=1 AND DPT3_CARD=1 AND
+ POLIO1_CARD=1 AND POLIO2_CARD=1 AND POLIO3_CARD=1 AND MEASLES_CARD=1).
+
+COMPUTE filter_card = 0.
+IF (filter_TN_and_Nagaland = 1 AND H1 = 1) filter_card = 1.
+EXECUTE.
+
+USE ALL.
+FILTER BY filter_card.
+EXECUTE.
+
+FREQUENCIES VARIABLES=fully_immunized_card.
+
+* Sensitivity analyses follow same framework as main analysis using card-only outcome.
